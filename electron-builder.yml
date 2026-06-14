@@ -42,6 +42,12 @@ extraResources:
   - from: actions.json
     to: actions.json
 
+# Safe artifact filenames (no spaces / leading dots). The product name
+# "J.A.R.V.I.S." gets mangled differently by GitHub vs electron-updater, which
+# breaks auto-update downloads — use ${name} (jarvis-desktop) instead so the
+# names in latest.yml exactly match the uploaded release assets.
+artifactName: ${name}-${version}-${arch}.${ext}
+
 win:
   target:
     - target: nsis
@@ -57,6 +63,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: J.A.R.V.I.S.
+  artifactName: ${name}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${name}-Portable-${version}.${ext}
 
 mac:
   target:
