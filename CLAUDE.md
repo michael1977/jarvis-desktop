@@ -46,8 +46,16 @@ all driving a glassy heads-up-display overlay. Targets Windows (primary) and mac
   the model or a native DLL, check `dist/win-unpacked/resources/`.
 - **First run needs the model**: `voice.js` fails to load if `models/` is empty —
   run `download-model` before `dev`.
-- **`crash.log`** at repo root is a native (V8/WinSta) crash dump from a packaged run;
-  it's git-ignored territory and safe to delete when stale — not source.
+- **GPU/compositor crashes**: the HUD is a full-screen always-on animated overlay;
+  Chromium's GPU process used to SIGSEGV in the Windows DWM session-capability check
+  (`WinStationGetCurrentSessionCapabilities`), killing the app. Fixed via
+  `app.disableHardwareAcceleration()` in `index.js` (all drawing is 2D canvas, so
+  software rendering is visually identical). Don't re-enable HW accel without retesting.
+- **Crash logging**: process failures are logged (pure JS, no native dep) to
+  `crash-events.log` in the app's `userData` dir via `child-process-gone` /
+  `render-process-gone` handlers; the renderer auto-reloads on a non-clean exit.
+  (A legacy native `crash.log` at repo root from old `segfault-handler` builds is
+  obsolete and safe to delete.)
 - Spoken interface: brain replies are deliberately short, plain text, no markdown.
 
 ## Conventions

@@ -3,6 +3,14 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+// The HUD is a full-screen, always-on, continuously-animated overlay. On some
+// Windows GPU/driver + session configurations Chromium's GPU/compositor crashes
+// inside the DWM session-capability check (WinStationGetCurrentSessionCapabilities),
+// taking the whole app down. All HUD drawing is 2D canvas, so software rendering
+// is visually identical — disabling hardware acceleration removes the GPU process
+// (and that crash path) entirely. Must run before app 'ready'.
+app.disableHardwareAcceleration();
+
 // Patch require resolution BEFORE any native modules are loaded
 const { patchRequire } = require('./native-modules');
 patchRequire();
@@ -29,6 +37,25 @@ let wallpaperMode = true; // default to wallpaper mode
 const autoLauncher = new AutoLaunch({
   name: 'J.A.R.V.I.S.',
   isHidden: true,
+});
+
+// Lightweight crash logging (pure JS, no native dep). Records GPU/renderer/child
+// process failures to userData/crash-events.log so issues are diagnosable.
+function logCrash(kind, details) {
+  try {
+    const line = `[${new Date().toISOString()}] ${kind} ${JSON.stringify(details)}\n`;
+    console.error('[crash]', kind, details);
+    fs.appendFileSync(path.join(app.getPath('userData'), 'crash-events.log'), line);
+  } catch (_) {}
+}
+
+app.on('child-process-gone', (_e, details) => logCrash('child-process-gone', details));
+app.on('render-process-gone', (_e, _wc, details) => {
+  logCrash('render-process-gone', details);
+  // Reload the HUD instead of leaving a dead window.
+  if (mainWindow && !mainWindow.isDestroyed() && details.reason !== 'clean-exit') {
+    try { mainWindow.webContents.reload(); } catch (_) {}
+  }
 });
 
 // Helper: send IPC to renderer if window exists
