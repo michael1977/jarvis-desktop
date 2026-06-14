@@ -696,6 +696,28 @@ window.jarvis.onTranscriptPartial((text) => {
   cmdEl.value = text;
 });
 
+// ---- Auto-update status chip ----
+window.jarvis.onUpdateStatus((s) => {
+  const chip = document.getElementById('update-chip');
+  const text = document.getElementById('update-text');
+  if (!chip || !text || !s) return;
+  chip.className = 'chip update-chip show ' + s.state;
+  chip.onclick = null;
+  switch (s.state) {
+    case 'checking':    text.textContent = 'CHECKING UPDATES'; break;
+    case 'current':     text.textContent = 'UP TO DATE'; break;
+    case 'available':   text.textContent = `UPDATE ${s.version}`; break;
+    case 'downloading': text.textContent = `DOWNLOADING ${s.percent}%`; break;
+    case 'ready':
+      text.textContent = `RESTART TO UPDATE ${s.version || ''}`.trim();
+      chip.title = 'Click to restart and apply the update';
+      chip.onclick = () => window.jarvis.installUpdate();
+      break;
+    case 'error':       text.textContent = 'UPDATE CHECK FAILED'; break;
+    default:            chip.classList.remove('show');
+  }
+});
+
 window.jarvis.onVoiceStatus((status) => {
   const micBtn = document.getElementById('mic');
   if (status === 'active') {

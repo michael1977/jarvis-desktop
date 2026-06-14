@@ -330,6 +330,22 @@ header {
   50% { transform: scale(1.18); opacity: .6; }
 }
 
+/* ---- Update status chip ---- */
+.update-chip { display: none; }                 /* hidden until the updater reports */
+.update-chip.show { display: inline-flex; }
+.update-chip.checking { color: var(--text-dim); }
+.update-chip.checking .dot { background: var(--text-dim); box-shadow: none; }
+.update-chip.current { color: var(--cyan); }
+.update-chip.available, .update-chip.downloading { color: var(--amber); }
+.update-chip.available .dot, .update-chip.downloading .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.update-chip.ready {
+  color: #03070f; background: var(--amber); cursor: pointer;
+  border-color: var(--amber); font-weight: 700;
+  animation: updatePulse 1.6s ease-in-out infinite;
+}
+.update-chip.ready .dot { background: #03070f; box-shadow: none; }
+@keyframes updatePulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+
 /* ---- Desktop icons ---- */
 .desktop-icons {
   display: flex; flex-wrap: wrap; gap: 4px;

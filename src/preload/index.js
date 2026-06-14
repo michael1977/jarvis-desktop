@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('jarvis', {
   onNetworkDevices:   (cb) => ipcRenderer.on('network:devices',   (_e, d) => cb(d)),
   onDesktopItems:     (cb) => ipcRenderer.on('desktop:items',     (_e, d) => cb(d)),
   launchDesktopItem:  (p)  => ipcRenderer.send('desktop:launch', p),
+  onUpdateStatus:     (cb) => ipcRenderer.on('update:status',     (_e, s) => cb(s)),
+  installUpdate:      ()   => ipcRenderer.send('update:install'),
 
   // Send commands / signals to main
   submitCommand: (text) => ipcRenderer.send('cmd:submit', text),
