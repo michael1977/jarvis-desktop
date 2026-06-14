@@ -387,6 +387,7 @@ app.whenReady().then(async () => {
   const brainOk = brain.init(apiKey, {
     model: process.env.JARVIS_MODEL || 'claude-opus-4-8',
     onEvent: (event, data) => send(event, data),
+    storeDir: app.getPath('userData'), // persist conversation + long-term memory here
   });
   if (!brainOk) {
     console.warn('[main] No ANTHROPIC_API_KEY. Brain will use fallback replies.');

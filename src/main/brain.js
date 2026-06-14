@@ -1,4 +1,6 @@
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const { getActions, executeTool } = require('./actions');
 const systemTools = require('./system-tools');
@@ -23,8 +25,17 @@ function buildSystemPrompt() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
   const dateStr = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  // Stable block is cached; the volatile date/time goes in a trailing block so it
-  // doesn't invalidate the cached prefix on every call (prefix-match caching).
+
+  let memText = '';
+  if (memoryFacts.length) {
+    memText = `\n\nLong-term memory — things you have remembered about the user across previous conversations:\n- ${memoryFacts.join('\n- ')}`;
+  }
+  if (history.length) {
+    memText += `\n\nYou retain the recent conversation history below, so you can refer back to earlier exchanges naturally.`;
+  }
+
+  // Stable block is cached; the volatile date/time + memory go in a trailing block
+  // so they don't invalidate the cached prefix on every call (prefix-match caching).
   return [
     {
       type: 'text',
@@ -33,7 +44,7 @@ function buildSystemPrompt() {
     },
     {
       type: 'text',
-      text: `Current date and time: ${dateStr}, ${timeStr}. Platform: ${process.platform === 'win32' ? 'Windows' : 'macOS'}. User: ${os.userInfo().username}.`,
+      text: `Current date and time: ${dateStr}, ${timeStr}. Platform: ${process.platform === 'win32' ? 'Windows' : 'macOS'}. User: ${os.userInfo().username}.${memText}`,
     },
   ];
 }
@@ -47,15 +58,69 @@ const FALLBACKS = [
 
 let client = null;
 let model = 'claude-opus-4-8';
-let history = [];
+let history = [];        // [{ role: 'user'|'assistant', content: string }] — clean text turns
+let memoryFacts = [];    // durable facts the user asked Jarvis to remember
 let emitCallback = null;
+
+// Persistence (paths set from init opts.storeDir, e.g. app userData).
+let historyPath = null;
+let memoryPath = null;
+const MAX_HISTORY = 30;  // keep the last ~15 exchanges across restarts
+const MAX_FACTS = 100;
+
+function loadJson(file, fallbackVal) {
+  try {
+    if (file && fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    console.error('[brain] failed to load', file, e.message);
+  }
+  return fallbackVal;
+}
+
+function saveJson(file, data) {
+  if (!file) return;
+  try {
+    fs.writeFileSync(file, JSON.stringify(data));
+  } catch (e) {
+    console.error('[brain] failed to save', file, e.message);
+  }
+}
 
 function init(apiKey, opts = {}) {
   if (!apiKey) return false;
   client = new Anthropic({ apiKey });
   if (opts.model) model = opts.model;
   if (opts.onEvent) emitCallback = opts.onEvent;
+
+  if (opts.storeDir) {
+    historyPath = path.join(opts.storeDir, 'conversation.json');
+    memoryPath = path.join(opts.storeDir, 'memory.json');
+    // Restore prior conversation + long-term memory so Jarvis remembers across restarts.
+    const h = loadJson(historyPath, []);
+    history = Array.isArray(h) ? h.filter(m => m && typeof m.content === 'string').slice(-MAX_HISTORY) : [];
+    const m = loadJson(memoryPath, []);
+    memoryFacts = Array.isArray(m) ? m.filter(x => typeof x === 'string') : [];
+    console.log(`[brain] memory loaded: ${history.length} messages, ${memoryFacts.length} facts`);
+  }
   return true;
+}
+
+/** Store a durable fact (deduplicated) and persist it. */
+function rememberFact(fact) {
+  const f = (fact || '').trim();
+  if (!f) return 'Nothing to remember, sir.';
+  if (!memoryFacts.some(x => x.toLowerCase() === f.toLowerCase())) {
+    memoryFacts.push(f);
+    if (memoryFacts.length > MAX_FACTS) memoryFacts = memoryFacts.slice(-MAX_FACTS);
+    saveJson(memoryPath, memoryFacts);
+  }
+  return `Noted and remembered: ${f}`;
+}
+
+/** Clear stored conversation history and/or long-term memory. */
+function clearMemory(opts = {}) {
+  if (opts.history !== false) { history = []; saveJson(historyPath, history); }
+  if (opts.facts) { memoryFacts = []; saveJson(memoryPath, memoryFacts); }
 }
 
 function isReady() {
@@ -71,6 +136,18 @@ function buildToolDefs() {
 
   return [
     ...systemTools.TOOL_DEFS,
+    {
+      name: 'remember',
+      description:
+        'Store a durable fact about the user to recall in future conversations — their name, ' +
+        'preferences, ongoing projects, important dates, etc. Use this whenever the user asks you ' +
+        'to remember something, or shares a lasting personal detail worth keeping. Keep each fact concise.',
+      input_schema: {
+        type: 'object',
+        properties: { fact: { type: 'string', description: 'The concise fact to remember.' } },
+        required: ['fact'],
+      },
+    },
     {
       name: 'open_app',
       description: 'Open an application by name (e.g. "Notepad", "Chrome", "Spotify", "Calculator").',
@@ -126,13 +203,14 @@ function emit(event, data) {
 async function think(userText) {
   if (!client) return fallback();
 
-  history.push({ role: 'user', content: userText });
-  if (history.length > 12) history = history.slice(-12);
-
   const tools = buildToolDefs();
   // Cache the (stable) tool definitions so the model doesn't re-process them every turn.
   tools[tools.length - 1].cache_control = { type: 'ephemeral' };
-  const messages = [...history];
+
+  // Build the working message list from persisted history + this turn's input.
+  // `history` holds only clean text turns; tool_use/tool_result blocks stay local
+  // to this call so a restart never reloads orphaned tool fragments.
+  const messages = [...history, { role: 'user', content: userText }];
 
   try {
     for (let i = 0; i < 5; i++) {
@@ -152,26 +230,25 @@ async function think(userText) {
         const results = [];
         for (const block of resp.content) {
           if (block.type === 'tool_use') {
-            // Check built-in tools first
-            const builtinResult = await executeBuiltinTool(block.name, block.input);
-            if (builtinResult !== null) {
-              console.log(`[action] ${block.name} ->`, builtinResult.slice(0, 200));
-              results.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: builtinResult,
-              });
+            let out;
+            if (block.name === 'remember') {
+              // Long-term memory: persist the fact for future conversations.
+              out = rememberFact(block.input && block.input.fact);
+              emit('action:ran', { tool: 'remember', args: block.input, result: out });
             } else {
-              emit('action:running', { tool: block.name, args: block.input });
-              const out = await executeTool(block.name, block.input);
-              console.log(`[action] ${block.name}`, block.input, '->', out);
-              emit('action:ran', { tool: block.name, args: block.input, result: out });
-              results.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: out,
-              });
+              // Check built-in tools first
+              const builtinResult = await executeBuiltinTool(block.name, block.input);
+              if (builtinResult !== null) {
+                console.log(`[action] ${block.name} ->`, builtinResult.slice(0, 200));
+                out = builtinResult;
+              } else {
+                emit('action:running', { tool: block.name, args: block.input });
+                out = await executeTool(block.name, block.input);
+                console.log(`[action] ${block.name}`, block.input, '->', out);
+                emit('action:ran', { tool: block.name, args: block.input, result: out });
+              }
             }
+            results.push({ type: 'tool_result', tool_use_id: block.id, content: out });
           }
         }
         messages.push({ role: 'user', content: results });
@@ -186,17 +263,20 @@ async function think(userText) {
 
       if (!reply) throw new Error('empty reply');
 
-      history = messages.slice(-12);
+      // Persist only the clean user/assistant text turns so memory survives restarts.
+      history.push({ role: 'user', content: userText });
+      history.push({ role: 'assistant', content: reply });
+      if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+      saveJson(historyPath, history);
+
       return reply;
     }
 
     return 'I got a little tangled up there, sir. Try that again?';
   } catch (e) {
     console.error('[brain] error:', e.message, e.status || '', e.error?.message || '');
-    const fb = fallback();
-    history.push({ role: 'assistant', content: fb });
-    return fb;
+    return fallback();
   }
 }
 
-module.exports = { init, isReady, think };
+module.exports = { init, isReady, think, rememberFact, clearMemory };
