@@ -11,8 +11,11 @@ const os = require('os');
 // (and that crash path) entirely. Must run before app 'ready'.
 app.disableHardwareAcceleration();
 
-// Patch require resolution BEFORE any native modules are loaded
-const { patchRequire } = require('./native-modules');
+// Patch require resolution BEFORE any native modules are loaded, and neutralize
+// naudiodon's bundled segfault-handler (its broken native handler was crashing
+// the whole app — see native-modules.js). Both must run before voice/naudiodon.
+const { patchRequire, disableSegfaultHandler } = require('./native-modules');
+disableSegfaultHandler();
 patchRequire();
 
 const AutoLaunch = require('auto-launch');

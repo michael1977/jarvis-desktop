@@ -11,6 +11,29 @@ const Module = require('module');
 const { app } = require('electron');
 
 let patched = false;
+let segfaultDisabled = false;
+
+/**
+ * Neutralize `segfault-handler`.
+ *
+ * `naudiodon` (our mic-capture lib) does, at module load:
+ *     require('segfault-handler').registerHandler("crash.log");
+ * That installs an ancient, Electron-incompatible native SIGSEGV handler whose
+ * own stack-walker faults with 0xc0000409 — turning minor/benign signals into
+ * hard app shutdowns. We don't want a global native crash handler at all (we use
+ * Electron's child/render-process-gone events instead), so intercept the require
+ * and hand back a harmless stub. Must run BEFORE naudiodon is required.
+ */
+function disableSegfaultHandler() {
+  if (segfaultDisabled) return;
+  segfaultDisabled = true;
+  const stub = { registerHandler() {}, setSignal() {} };
+  const originalLoad = Module._load;
+  Module._load = function (request, parent, isMain, options) {
+    if (request === 'segfault-handler') return stub;
+    return originalLoad.call(this, request, parent, isMain, options);
+  };
+}
 
 function patchRequire() {
   if (patched || !app.isPackaged) return;
@@ -39,4 +62,4 @@ function patchRequire() {
   console.log('[native] Patched require resolution for asar.unpacked');
 }
 
-module.exports = { patchRequire };
+module.exports = { patchRequire, disableSegfaultHandler };
