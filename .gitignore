@@ -1,0 +1,14 @@
+node_modules/
+dist/
+models/
+.env
+*.mp3
+
+# Native crash dumps (regenerated per run)
+crash.log
+
+# Local Claude Code / editor / OS cruft
+.claude/
+.DS_Store
+Thumbs.db
+*.log

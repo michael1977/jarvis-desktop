@@ -1,0 +1,26 @@
+{
+  "shutdown_computer": {
+    "description": "Shut the computer down",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to shut down"],
+    "command_win": ["shutdown", "/s", "/t", "0"]
+  },
+  "restart_computer": {
+    "description": "Restart the computer",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to restart"],
+    "command_win": ["shutdown", "/r", "/t", "0"]
+  },
+  "log_out": {
+    "description": "Log out of the current user session",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to log out"],
+    "command_win": ["shutdown", "/l"]
+  },
+  "empty_trash": {
+    "description": "Permanently empty the Trash / Recycle Bin",
+    "command_mac": ["osascript", "-e", "tell application \"Finder\" to empty trash"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "Clear-RecycleBin -Force -ErrorAction SilentlyContinue"]
+  },
+  "quit_all_apps": {
+    "description": "Quit all running apps except Finder (macOS only)",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to set quitapps to name of (every process whose background only is false)", "-e", "repeat with theApp in quitapps", "-e", "if theApp is not \"Finder\" then tell application theApp to quit", "-e", "end repeat"]
+  }
+}

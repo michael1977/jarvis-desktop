@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; script-src 'self'; media-src 'self' data: blob: file:;">
+<title>J.A.R.V.I.S.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="hud.css">
+</head>
+<body>
+<div class="app">
+  <!-- Title bar (draggable, frameless window controls) -->
+  <header>
+    <div class="brand">
+      <div class="title display">J.A.R.V.I.S.</div>
+      <div class="sub">JUST&nbsp;A&nbsp;RATHER&nbsp;VERY&nbsp;INTELLIGENT&nbsp;SYSTEM</div>
+    </div>
+    <div class="chips">
+      <div class="chip"><span class="dot"></span>ONLINE</div>
+      <div class="chip"><span class="dot"></span>SECURE</div>
+      <div class="chip"><span class="dot"></span>NEURAL LINK</div>
+    </div>
+    <div class="clock">
+      <div class="t" id="clock">00:00:00</div>
+      <div class="d" id="date">&mdash; &mdash; &mdash;</div>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" id="btn-min" title="Minimize">&#x2013;</button>
+      <button class="win-btn" id="btn-max" title="Maximize">&#x25A1;</button>
+      <button class="win-btn win-close" id="btn-close" title="Close">&#x2715;</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Left panel: Vitals + Transcript -->
+    <section class="panel">
+      <div class="ptitle">SYSTEM VITALS <span id="uptime">UP 00:00</span></div>
+      <div class="vital"><div class="row"><span>CPU LOAD</span><span class="v" data-v="cpu">&mdash; %</span></div><div class="bar" data-bar="cpu"><i style="width:0"></i></div></div>
+      <div class="vital"><div class="row"><span>MEMORY</span><span class="v" data-v="mem">&mdash; %</span></div><div class="bar" data-bar="mem"><i style="width:0"></i></div></div>
+      <div class="vital"><div class="row"><span>MEM USED</span><span class="v" data-v="memdetail">&mdash; GB</span></div><div class="bar" data-bar="memdetail"><i style="width:0"></i></div></div>
+      <div class="vital"><div class="row"><span>CORES</span><span class="v" data-v="cores">&mdash;</span></div><div class="bar" data-bar="cores"><i style="width:0"></i></div></div>
+      <div class="vital"><div class="row"><span>SYS UPTIME</span><span class="v" data-v="sysup">&mdash;</span></div><div class="bar" data-bar="sysup"><i style="width:0"></i></div></div>
+      <div class="logwrap">
+        <div class="ptitle" style="margin-top:6px">TRANSCRIPT <span>LIVE</span></div>
+        <div class="log" id="log"></div>
+      </div>
+    </section>
+
+    <!-- Center: Arc Reactor -->
+    <section class="panel center">
+      <div class="readout"><div>SYS&nbsp;<b id="r-sys">NOMINAL</b></div><div>CPU&nbsp;<b id="r-cpu">0%</b></div><div>MEM&nbsp;<b id="r-mem">0%</b></div></div>
+      <div class="obj"><div>HOST&nbsp;<b id="o-host">&mdash;</b></div><div>CORES&nbsp;<b id="o-cores">&mdash;</b></div><div>OS&nbsp;<b id="o-os">&mdash;</b></div></div>
+      <div class="reactor-wrap">
+        <canvas id="reactor" width="520" height="520"></canvas>
+        <div class="corelabel"><div class="big display" id="coreState">BOOTING</div><div class="small">ARC REACTOR &middot; MK VII</div></div>
+      </div>
+    </section>
+
+    <!-- Right panel: Radar + Signal + Diagnostics -->
+    <section class="panel">
+      <div class="ptitle">PROXIMITY SCAN <span>360&deg;</span></div>
+      <div class="radar-box"><canvas id="radar" width="220" height="220"></canvas></div>
+      <div class="ptitle">SIGNAL <span>WAVE</span></div>
+      <div class="wave"><canvas id="wave"></canvas></div>
+      <div class="ptitle">APPLICATIONS <span id="appcount">0</span></div>
+      <div class="desktop-icons" id="desktop-icons"></div>
+      <div class="ptitle" style="margin-top:10px">NETWORK NODES <span id="nodecount">0</span></div>
+      <div class="net-nodes" id="net-nodes"></div>
+    </section>
+  </div>
+
+  <!-- Bottom console -->
+  <div class="console">
+    <div class="conrow">
+      <div class="quick">
+        <button data-cmd="Run a full system diagnostic">RUN DIAGNOSTICS</button>
+        <button data-cmd="Scan the perimeter for contacts">SCAN PERIMETER</button>
+        <button data-cmd="Divert auxiliary power to the core">BOOST POWER</button>
+        <button data-cmd="Give me a status report">STATUS REPORT</button>
+      </div>
+      <div class="toggle">
+        <button id="voiceBtn" class="on" title="Speak responses aloud">VOICE ON</button>
+      </div>
+    </div>
+    <div class="cmdline" id="cmdline">
+      <span class="prompt">&gt;</span>
+      <input id="cmd" type="text" autocomplete="off" placeholder="Speak or type &mdash; ask J.A.R.V.I.S. anything">
+      <button class="iconbtn" id="mic" title="Voice command">MIC</button>
+      <button class="iconbtn" id="send" title="Execute">SEND</button>
+    </div>
+  </div>
+</div>
+
+<!-- First-run setup overlay (shown when API key is missing) -->
+<div id="first-run" class="first-run" style="display:none">
+  <div class="fr-box">
+    <div class="fr-title display">INITIAL CONFIGURATION</div>
+    <div class="fr-body">
+      <p>J.A.R.V.I.S. requires an Anthropic API key to connect to the neural network.</p>
+      <p>Create a <code>.env</code> file in the application folder with:</p>
+      <pre>ANTHROPIC_API_KEY=sk-ant-...</pre>
+      <p>Then restart the application. Until configured, J.A.R.V.I.S. will operate in offline mode with limited responses.</p>
+      <p class="fr-path">Config location: <code id="fr-env-path"></code></p>
+    </div>
+    <button class="fr-dismiss" id="fr-dismiss">UNDERSTOOD</button>
+  </div>
+</div>
+
+<script src="hud.js"></script>
+</body>
+</html>

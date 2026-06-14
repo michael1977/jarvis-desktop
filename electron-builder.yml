@@ -1,0 +1,72 @@
+appId: com.jarvis.desktop
+productName: J.A.R.V.I.S.
+copyright: Copyright (c) 2026
+
+directories:
+  output: dist
+  buildResources: assets
+
+files:
+  - src/**/*
+  - assets/**/*
+  - actions.json
+  - "!actions-powerful.json"
+  - "!models/**/*"
+  - "!scripts/**/*"
+  - "!*.md"
+  - "!.env"
+  - "!.env.example"
+
+asar: true
+asarUnpack:
+  # Unpack all of node_modules — native modules (koffi, vosk-koffi, naudiodon,
+  # segfault-handler) and their transitive deps (bindings, file-uri-to-path, etc.)
+  # all need to be on the real filesystem. Unpacking the lot avoids whack-a-mole.
+  - "node_modules/**/*"
+
+extraResources:
+  # Vosk speech model — too large for asar, loaded via fs at runtime
+  - from: models/
+    to: models/
+    filter:
+      - "**/*"
+  - from: .env.example
+    to: .env.example
+  - from: actions.json
+    to: actions.json
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: assets/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: J.A.R.V.I.S.
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  category: public.app-category.productivity
+  icon: assets/icon.png
+  extendInfo:
+    NSMicrophoneUsageDescription: "J.A.R.V.I.S. needs microphone access for voice commands."
+
+dmg:
+  title: "J.A.R.V.I.S."
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Utility

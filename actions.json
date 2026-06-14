@@ -1,0 +1,141 @@
+{
+  "lock_screen": {
+    "description": "Lock the screen",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to keystroke \"q\" using {command down, control down}"],
+    "command_win": ["rundll32.exe", "user32.dll,LockWorkStation"]
+  },
+  "sleep_computer": {
+    "description": "Put the computer to sleep",
+    "command_mac": ["pmset", "sleepnow"],
+    "command_win": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
+  },
+  "sleep_display": {
+    "description": "Turn off the display only",
+    "command_mac": ["pmset", "displaysleepnow"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(Add-Type '[DllImport(\"user32.dll\")]public static extern int SendMessage(int hWnd,int hMsg,int wParam,int lParam);' -Name M -Pass)::SendMessage(-1,0x0112,0xF170,2)"]
+  },
+
+  "volume_up": {
+    "description": "Turn the volume up",
+    "command_mac": ["osascript", "-e", "set volume output volume (output volume of (get volume settings) + 12)"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]175)"]
+  },
+  "volume_down": {
+    "description": "Turn the volume down",
+    "command_mac": ["osascript", "-e", "set volume output volume (output volume of (get volume settings) - 12)"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]174)"]
+  },
+  "volume_half": {
+    "description": "Set the volume to about half (macOS only)",
+    "command_mac": ["osascript", "-e", "set volume output volume 50"]
+  },
+  "volume_max": {
+    "description": "Set the volume to maximum (macOS only)",
+    "command_mac": ["osascript", "-e", "set volume output volume 100"]
+  },
+  "mute_toggle": {
+    "description": "Mute or unmute the sound",
+    "command_mac": ["osascript", "-e", "set volume output muted (not (output muted of (get volume settings)))"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"]
+  },
+
+  "media_playpause": {
+    "description": "Play or pause music (Spotify on macOS, system media key on Windows)",
+    "command_mac": ["osascript", "-e", "tell application \"Spotify\" to playpause"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"]
+  },
+  "media_next": {
+    "description": "Skip to the next track",
+    "command_mac": ["osascript", "-e", "tell application \"Spotify\" to next track"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"]
+  },
+  "media_previous": {
+    "description": "Go to the previous track",
+    "command_mac": ["osascript", "-e", "tell application \"Spotify\" to previous track"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]177)"]
+  },
+
+  "brightness_up": {
+    "description": "Increase screen brightness",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to key code 144"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "$b=(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness;(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,[math]::Min(100,$b+15))"]
+  },
+  "brightness_down": {
+    "description": "Decrease screen brightness",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to key code 145"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "$b=(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness;(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,[math]::Max(0,$b-15))"]
+  },
+
+  "screenshot_full": {
+    "description": "Take a full-screen screenshot and copy it to the clipboard",
+    "command_mac": ["screencapture", "-c"],
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).SendKeys('{PRTSC}')"]
+  },
+  "screenshot_region": {
+    "description": "Start a region screenshot / snip",
+    "command_mac": ["screencapture", "-i", "-c"],
+    "command_win": ["explorer.exe", "ms-screenclip:"]
+  },
+
+  "dark_mode_toggle": {
+    "description": "Toggle dark mode (macOS only)",
+    "command_mac": ["osascript", "-e", "tell application \"System Events\" to tell appearance preferences to set dark mode to not dark mode"]
+  },
+  "show_desktop": {
+    "description": "Show the desktop / minimise everything (Windows only)",
+    "command_win": ["powershell", "-NoProfile", "-Command", "(New-Object -ComObject Shell.Application).ToggleDesktop()"]
+  },
+  "new_note": {
+    "description": "Start a new note",
+    "command_mac": ["osascript", "-e", "tell application \"Notes\" to activate"],
+    "command_win": ["cmd", "/c", "start", "notepad"]
+  },
+
+  "wifi_off": {
+    "description": "Turn Wi-Fi off (macOS uses interface en0; Windows needs admin rights)",
+    "command_mac": ["networksetup", "-setairportpower", "en0", "off"],
+    "command_win": ["netsh", "interface", "set", "interface", "name=Wi-Fi", "admin=disabled"]
+  },
+  "wifi_on": {
+    "description": "Turn Wi-Fi on (macOS uses interface en0; Windows needs admin rights)",
+    "command_mac": ["networksetup", "-setairportpower", "en0", "on"],
+    "command_win": ["netsh", "interface", "set", "interface", "name=Wi-Fi", "admin=enabled"]
+  },
+
+  "open_downloads": {
+    "description": "Open the Downloads folder",
+    "command_mac": ["open", "-a", "Finder", "~/Downloads"],
+    "command_win": ["explorer.exe", "shell:Downloads"]
+  },
+  "open_documents": {
+    "description": "Open the Documents folder",
+    "command_mac": ["open", "-a", "Finder", "~/Documents"],
+    "command_win": ["explorer.exe", "shell:Personal"]
+  },
+
+  "open_projects": {
+    "description": "Open my main projects / Developer folder  [uses ~ / %USERPROFILE%]",
+    "command_mac": ["open", "~/Developer"],
+    "command_win": ["explorer.exe", "%USERPROFILE%\\Developer"]
+  },
+  "open_podiatrycad": {
+    "description": "Open the PodiatryCAD project folder  [uses ~ / %USERPROFILE%]",
+    "command_mac": ["open", "~/Developer/PodiatryCAD"],
+    "command_win": ["explorer.exe", "%USERPROFILE%\\Developer\\PodiatryCAD"]
+  },
+  "git_pull_podiatrycad": {
+    "description": "Pull the latest PodiatryCAD changes from GitHub  [uses ~ / %USERPROFILE%]",
+    "command_mac": ["git", "-C", "~/Developer/PodiatryCAD", "pull"],
+    "command_win": ["git", "-C", "%USERPROFILE%\\Developer\\PodiatryCAD", "pull"]
+  },
+  "backup_patient_images": {
+    "description": "Run the patient images backup script  [uses ~ / %USERPROFILE%]",
+    "command_mac": ["/bin/bash", "~/scripts/backup-patient-images.sh"],
+    "command_win": ["cmd", "/c", "%USERPROFILE%\\scripts\\backup-patient-images.bat"]
+  },
+  "start_claude_code": {
+    "description": "Open a terminal ready for Claude Code  [uses ~ / %USERPROFILE%]",
+    "command_mac": ["open", "-a", "Terminal", "~/Developer"],
+    "command_win": ["cmd", "/c", "start", "cmd", "/k", "cd /d %USERPROFILE%\\Developer"]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "jarvis-desktop",
+  "version": "0.1.0",
+  "description": "J.A.R.V.I.S. Desktop — always-on voice assistant with sci-fi HUD",
+  "main": "src/main/index.js",
+  "scripts": {
+    "download-model": "node scripts/download-model.js",
+    "dev": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
+    "auto-launch": "^5.0.6",
+    "dotenv": "^17.4.2",
+    "msedge-tts": "^2.0.5",
+    "naudiodon": "^2.3.6",
+    "vosk-koffi": "^1.1.1"
+  }
+}
