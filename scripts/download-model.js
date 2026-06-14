@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * Downloads the Vosk small English model (~40 MB) into models/
- * Run once: node scripts/download-model.js
+ * Downloads a Vosk English speech model into models/.
+ * Default: vosk-model-en-us-0.22-lgraph (~128 MB) — much more accurate than the
+ * small model while staying fast. Override with JARVIS_VOSK_MODEL, e.g.:
+ *   JARVIS_VOSK_MODEL=vosk-model-small-en-us-0.15   (40 MB, fastest, least accurate)
+ *   JARVIS_VOSK_MODEL=vosk-model-en-us-0.22         (1.8 GB, most accurate, heavy)
+ * Run: node scripts/download-model.js
  */
 const https = require('https');
 const http = require('http');
@@ -9,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const MODEL_NAME = 'vosk-model-small-en-us-0.15';
+const MODEL_NAME = process.env.JARVIS_VOSK_MODEL || 'vosk-model-en-us-0.22-lgraph';
 const MODEL_URL = `https://alphacephei.com/vosk/models/${MODEL_NAME}.zip`;
 const MODELS_DIR = path.join(__dirname, '..', 'models');
 const MODEL_PATH = path.join(MODELS_DIR, MODEL_NAME);

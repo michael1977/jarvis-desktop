@@ -35,6 +35,11 @@ all driving a glassy heads-up-display overlay. Targets Windows (primary) and mac
 - `JARVIS_MODEL` — optional override; default `claude-opus-4-8` (run at low effort, no
   extended thinking, for snappy spoken replies)
 - `JARVIS_VOICE` — optional Edge TTS voice override
+- `JARVIS_VOSK_MODEL` — speech model dir under `models/`. Default
+  `vosk-model-en-us-0.22-lgraph` (~128 MB, accurate). `index.js` auto-detects the
+  installed model (prefers non-"small"); `download-model` fetches this one.
+- `JARVIS_MIC_DEVICE` — input device id to pin a specific mic (ids are logged at
+  startup under "Input devices"). Default is the system default input.
 
 ## Gotchas
 - **Native modules** (`naudiodon`, `vosk-koffi`/`koffi`): rebuilt against Electron's ABI.

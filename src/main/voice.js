@@ -33,6 +33,7 @@ let running = false;
 let muted = false;
 let paused = false;
 let awake = false;
+let micDeviceId = -1;        // -1 = system default input
 let emit = () => {};
 let onTranscriptCb = () => {};
 
@@ -61,6 +62,14 @@ function init(modelPath, opts = {}) {
   }
 
   if (opts.onEvent) emit = opts.onEvent;
+  if (typeof opts.deviceId === 'number' && !Number.isNaN(opts.deviceId)) micDeviceId = opts.deviceId;
+
+  // Log available input devices so a specific mic can be chosen via JARVIS_MIC_DEVICE.
+  try {
+    const inputs = portAudio.getDevices().filter(d => d.maxInputChannels > 0);
+    console.log('[voice] Input devices:');
+    for (const d of inputs) console.log(`  id ${d.id}: ${d.name}${d.id === micDeviceId ? '  <- selected' : ''}`);
+  } catch (_) {}
 
   try {
     vosk.setLogLevel(-1);
@@ -110,7 +119,7 @@ function start(onTranscript) {
         channelCount: CHANNELS,
         sampleFormat: portAudio.SampleFormat16Bit,
         sampleRate: SAMPLE_RATE,
-        deviceId: -1,
+        deviceId: micDeviceId,
         framesPerBuffer: FRAME_SIZE,
       },
     });

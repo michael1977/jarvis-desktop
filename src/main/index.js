@@ -411,10 +411,25 @@ app.whenReady().then(async () => {
   const voiceName = process.env.JARVIS_VOICE || 'en-GB-RyanNeural';
   await tts.init(voiceName);
 
-  // Initialize voice pipeline (Vosk + naudiodon)
-  const modelPath = path.join(appDir, 'models', 'vosk-model-small-en-us-0.15');
+  // Initialize voice pipeline (Vosk + naudiodon). Auto-detect the installed model,
+  // preferring a larger/more-accurate one over the small model when both exist.
+  // Override with JARVIS_VOSK_MODEL (a dir name under models/).
+  const modelsDir = path.join(appDir, 'models');
+  let modelName = process.env.JARVIS_VOSK_MODEL;
+  if (!modelName) {
+    try {
+      const dirs = fs.readdirSync(modelsDir).filter(d =>
+        d.startsWith('vosk-model') && fs.statSync(path.join(modelsDir, d)).isDirectory());
+      modelName = dirs.find(d => !d.includes('small')) || dirs[0] || 'vosk-model-small-en-us-0.15';
+    } catch (_) {
+      modelName = 'vosk-model-small-en-us-0.15';
+    }
+  }
+  const modelPath = path.join(modelsDir, modelName);
+  console.log('[main] Using Vosk model:', modelName);
   const voiceOk = voice.init(modelPath, {
     onEvent: (event, data) => send(event, data),
+    deviceId: process.env.JARVIS_MIC_DEVICE ? parseInt(process.env.JARVIS_MIC_DEVICE, 10) : -1,
   });
 
   createWindow();
