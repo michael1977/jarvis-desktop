@@ -77,6 +77,31 @@ function resolveMemoryDir() {
   return app.getPath('userData');
 }
 
+// Shared config (API key, model, voice) stored in the memory dir — e.g. the
+// Google Drive "Jarvis" folder — so a fresh install on any synced machine is
+// zero-setup. Local .env always wins; the shared file only fills in what's unset,
+// and is seeded once from the first machine that has a key (never clobbered).
+function loadSharedConfig(memoryDir) {
+  if (!memoryDir) return;
+  const file = path.join(memoryDir, 'jarvis-config.json');
+  let cfg = {};
+  try { if (fs.existsSync(file)) cfg = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch (_) {}
+
+  // Apply shared values only where nothing is set locally (local env / .env wins).
+  for (const k of ['ANTHROPIC_API_KEY', 'JARVIS_MODEL', 'JARVIS_VOICE']) {
+    if (!process.env[k] && typeof cfg[k] === 'string' && cfg[k]) process.env[k] = cfg[k];
+  }
+
+  // Seed the shared file from this machine's key if it doesn't have one yet.
+  if (process.env.ANTHROPIC_API_KEY && !cfg.ANTHROPIC_API_KEY) {
+    try {
+      cfg.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+      fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+      console.log('[main] Seeded shared config:', file);
+    } catch (_) {}
+  }
+}
+
 // One-time copy of existing local memory into the (new) memory dir so switching to
 // Google Drive doesn't lose what Jarvis already learned. Never overwrites.
 function migrateMemory(fromDir, toDir) {
@@ -467,14 +492,20 @@ app.whenReady().then(async () => {
 
   loadActions(appDir, false);
 
-  // Initialize brain
-  const apiKey = process.env.ANTHROPIC_API_KEY;
   // Persist conversation + long-term memory in a Google Drive "Jarvis" folder when
   // available, so memory syncs across all the user's computers. Falls back to local
   // userData. Override with JARVIS_MEMORY_DIR.
   const memoryDir = resolveMemoryDir();
   migrateMemory(app.getPath('userData'), memoryDir); // carry over any existing local memory
   console.log('[main] Memory dir:', memoryDir);
+
+  // Pull the API key (+ model/voice) from a shared config in the Jarvis folder so a
+  // fresh install on any synced computer is zero-setup. Seeds the file from this
+  // machine's local key if the shared file doesn't have one yet.
+  loadSharedConfig(memoryDir);
+
+  // Initialize brain
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   const brainOk = brain.init(apiKey, {
     model: process.env.JARVIS_MODEL || 'claude-opus-4-8',
     onEvent: (event, data) => send(event, data),

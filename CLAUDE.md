@@ -45,6 +45,12 @@ all driving a glassy heads-up-display overlay. Targets Windows (primary) and mac
   `<Google Drive>/Jarvis` so memory syncs across machines; falls back to userData.
   On first switch, existing local memory is copied over (`migrateMemory`, never
   overwrites). Memory files: `conversation.json`, `memory.json`.
+- **Shared config / zero-setup**: `loadSharedConfig` reads `jarvis-config.json`
+  from the memory dir (the Google Drive `Jarvis` folder) and applies
+  `ANTHROPIC_API_KEY`/`JARVIS_MODEL`/`JARVIS_VOICE` when unset locally. A local
+  `.env` always wins. The file is seeded once from the first machine that has a
+  key (never clobbered), so fresh installs on a synced machine need no `.env`.
+  The key is stored plaintext in Drive by design — rotate if exposed.
 
 ## Gotchas
 - **Native modules** (`naudiodon`, `vosk-koffi`/`koffi`): rebuilt against Electron's ABI.
