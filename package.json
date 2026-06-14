@@ -7,7 +7,8 @@
     "download-model": "node scripts/download-model.js",
     "dev": "electron .",
     "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac"
+    "build:mac": "electron-builder --mac",
+    "postinstall": "node scripts/patch-naudiodon-macos26.js"
   },
   "author": "",
   "license": "MIT",

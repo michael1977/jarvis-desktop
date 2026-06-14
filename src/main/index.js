@@ -601,3 +601,107 @@ app.on('before-quit', () => {
   app.isQuitting = true;
   voice.stop();
 });
+
+// ── Mac macOS 26 renderer-voice fallback ──────────────────────────────────────
+// naudiodon / PortAudio crashes on macOS 26 (Darwin 25+). When the native voice
+// pipeline fails, the renderer captures mic audio via getUserMedia and sends
+// raw PCM Int16 chunks over IPC to Vosk running here in the main process.
+;(function macRendererVoice() {
+  if (process.platform !== 'darwin') return;
+  const os = require('os');
+  const darwinMajor = parseInt(os.release().split('.')[0], 10);
+  if (darwinMajor < 25) return; // Only needed on macOS 26+
+
+  const { session } = require('electron');
+
+  // Grant mic + speech-recognition permissions so getUserMedia works in renderer
+  app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => {
+      cb(['media', 'microphone', 'speech-recognition', 'mediaKeySystem'].includes(perm));
+    });
+    session.defaultSession.setPermissionCheckHandler((wc, perm) =>
+      ['media', 'microphone', 'speech-recognition'].includes(perm)
+    );
+    console.log('[mac-voice] Permission handlers registered for macOS 26+');
+  });
+
+  let vModel = null, wakeRec = null, cmdRec = null;
+  let rvAwake = false, rvTimer = null;
+  const SAMPLE_RATE = 16000;
+
+  function initVosk() {
+    // Wait until voice module has finished trying (and failing) before we take over
+    setTimeout(() => {
+      if (voice.isRunning()) return; // native pipeline worked — skip
+      try {
+        const vosk = require('vosk-koffi');
+        const modelPath = path.join(
+          app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../resources'),
+          'models', (() => {
+            // Use whichever model is available
+            const models = ['vosk-model-en-us-0.22-lgraph', 'vosk-model-small-en-us-0.15'];
+            for (const m of models) {
+              const p = path.join(
+                app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../resources'),
+                'models', m
+              );
+              if (require('fs').existsSync(p)) return m;
+            }
+            return 'vosk-model-small-en-us-0.15';
+          })()
+        );
+        vosk.setLogLevel(-1);
+        vModel  = new vosk.Model(modelPath);
+        wakeRec = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE, grammar: ['jarvis', '[unk]'] });
+        console.log('[mac-voice] Vosk renderer-voice ready');
+        send('voice:status', 'active');
+      } catch (e) {
+        console.error('[mac-voice] Vosk init failed:', e.message);
+      }
+    }, 4000); // give native pipeline time to start (or fail)
+  }
+
+  function goAwake() {
+    rvAwake = true;
+    send('state', 'listening');
+    const vosk = require('vosk-koffi');
+    try { wakeRec?.free(); } catch (_) {}
+    cmdRec  = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE });
+    rvTimer = setTimeout(goSleep, 8000);
+  }
+
+  function goSleep() {
+    rvAwake = false;
+    clearTimeout(rvTimer);
+    send('state', 'idle');
+    const vosk = require('vosk-koffi');
+    try { cmdRec?.free(); } catch (_) {}
+    cmdRec  = null;
+    wakeRec = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE, grammar: ['jarvis', '[unk]'] });
+  }
+
+  ipcMain.on('audio:chunk', (_e, arrayBuffer) => {
+    if (!vModel || voice.isRunning()) return;
+    const buf = Buffer.from(arrayBuffer);
+
+    if (!rvAwake) {
+      const done = wakeRec.acceptWaveform(buf);
+      const part = (wakeRec.partialResult().partial || '').toLowerCase();
+      if (part.includes('jarvis')) { goAwake(); return; }
+      if (done) {
+        if ((wakeRec.result().text || '').toLowerCase().includes('jarvis')) goAwake();
+      }
+    } else {
+      const done = cmdRec.acceptWaveform(buf);
+      const part = (cmdRec.partialResult().partial || '').trim();
+      if (part) { send('transcript:partial', part); clearTimeout(rvTimer); rvTimer = setTimeout(goSleep, 8000); }
+      if (done) {
+        const text = (cmdRec.result().text || '').trim();
+        goSleep();
+        if (text.length > 1) handleUtterance(text);
+      }
+    }
+  });
+
+  app.whenReady().then(initVosk);
+})();

@@ -798,3 +798,50 @@ setTimeout(() => {
   const hi = 'Systems online, sir. All subsystems nominal \u2014 standing by for your command.';
   typeReply(hi);
 }, 900);
+
+// ── Mac macOS 26 getUserMedia → PCM → IPC → Vosk fallback ───────────────────
+// When naudiodon is broken (macOS 26 / Darwin 25+), the renderer captures mic
+// audio directly, converts to Int16 PCM, and sends to main via IPC.
+;(function macMicBridge() {
+  if (!navigator.userAgent.includes('Electron')) return;
+
+  setTimeout(async () => {
+    if (voiceActive) return; // native pipeline is running — skip
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000, channelCount: 1,
+          echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+        }
+      });
+
+      const ctx  = new AudioContext({ sampleRate: 16000 });
+      const src  = ctx.createMediaStreamSource(stream);
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+
+      proc.onaudioprocess = (e) => {
+        if (busy) return;
+        const f32 = e.inputBuffer.getChannelData(0);
+        const i16 = new Int16Array(f32.length);
+        for (let i = 0; i < f32.length; i++)
+          i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+        window.jarvis.sendAudioChunk(i16.buffer);
+      };
+
+      src.connect(proc);
+      proc.connect(ctx.destination);
+
+      logLine('SYSTEM', 'Microphone active (renderer bridge) — say "Jarvis" to wake.', '');
+      coreState.textContent = 'DORMANT';
+      targetEnergy = 0.4;
+      cmdEl.placeholder = 'Say "Jarvis" to wake — or type here';
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        logLine('SYSTEM', 'Microphone access denied — allow J.A.R.V.I.S in System Settings → Privacy → Microphone', '');
+      } else {
+        logLine('SYSTEM', 'Mic error: ' + err.message, '');
+      }
+    }
+  }, 5000); // wait 5 s so native voice gets a chance first
+})();
