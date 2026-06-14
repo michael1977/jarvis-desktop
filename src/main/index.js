@@ -30,6 +30,7 @@ const { loadActions } = require('./actions');
 const systemTools = require('./system-tools');
 const network = require('./network');
 const desktopIcons = require('./desktop-icons');
+const { initUpdater } = require('./updater');
 
 let mainWindow = null;
 let tray = null;
@@ -557,6 +558,7 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   startTelemetry();
+  initUpdater(); // daily GitHub-release update check (packaged builds only)
 
   // Hidden app menu to enable Ctrl+C/V/X/A in frameless window
   Menu.setApplicationMenu(Menu.buildFromTemplate([

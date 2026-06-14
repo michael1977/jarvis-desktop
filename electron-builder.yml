@@ -2,6 +2,13 @@ appId: com.jarvis.desktop
 productName: J.A.R.V.I.S.
 copyright: Copyright (c) 2026
 
+# Update source for electron-updater. Generates latest.yml / latest-mac.yml so
+# installed apps can detect and download new GitHub releases.
+publish:
+  provider: github
+  owner: michael1977
+  repo: jarvis-desktop
+
 directories:
   output: dist
   buildResources: assets

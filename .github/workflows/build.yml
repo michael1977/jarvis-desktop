@@ -53,7 +53,8 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
             --notes "Automated build — Windows installer + macOS dmg." 2>/dev/null || true
-          gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*.zip --clobber
+          # Include latest-mac.yml + .blockmap so electron-updater can detect updates.
+          gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*.zip dist/*.yml dist/*.blockmap --clobber
 
   build-windows:
     runs-on: windows-latest
@@ -85,4 +86,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
             --notes "Automated build — Windows installer + macOS dmg." 2>/dev/null || true
-          gh release upload "$GITHUB_REF_NAME" dist/*.exe --clobber
+          # Include latest.yml + .blockmap so electron-updater can detect updates.
+          gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.yml dist/*.blockmap --clobber
