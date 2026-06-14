@@ -36,13 +36,16 @@ let awake = false;
 let emit = () => {};
 let onTranscriptCb = () => {};
 
-const COMMAND_TIMEOUT_MS = 8000;
+// After Jarvis replies it keeps listening for this long (silence window) before
+// going dormant, so a back-and-forth conversation needs only one "Hey Jarvis".
+// The timer resets whenever the user is mid-sentence, so it's a minimum, not a cap.
+const COMMAND_TIMEOUT_MS = 9000; // ~8s of real listening after the echo guard
 let commandTimer = null;
 
-// Brief deafness after (re)arming the wake word, so Jarvis doesn't trigger on
-// the tail of its own TTS or room echo and appears to "never go dormant".
+// Brief deafness after (re)arming, so Jarvis doesn't trigger on the tail of its
+// own TTS or room echo and appears to "never go dormant".
 const WAKE_COOLDOWN_MS = 900;
-let wakeArmedAt = 0;
+let deafUntil = 0;
 
 /**
  * Initialize the Vosk model.
@@ -99,7 +102,7 @@ function start(onTranscript) {
   awake = false;
 
   wakeRecognizer = createWakeRecognizer();
-  wakeArmedAt = Date.now() + WAKE_COOLDOWN_MS;
+  deafUntil = Date.now() + WAKE_COOLDOWN_MS;
 
   try {
     audioStream = portAudio.AudioIO({
@@ -136,6 +139,9 @@ function start(onTranscript) {
  * Process a chunk of audio data.
  */
 function processAudio(buffer) {
+  // Ignore audio for a beat after (re)arming, so TTS tail/echo can't self-trigger
+  // the wake word or be captured as a phantom follow-up command.
+  if (Date.now() < deafUntil) return;
   if (awake) {
     processCommand(buffer);
   } else {
@@ -144,12 +150,27 @@ function processAudio(buffer) {
 }
 
 /**
+ * Enter command-listening mode: stop wake detection, open the command recognizer,
+ * and start the silence window. Used both on wake-word and on the post-reply
+ * follow-up window so a conversation can continue without repeating "Jarvis".
+ */
+function enterCommandMode() {
+  if (!model || !running) return;
+  awake = true;
+  try { wakeRecognizer?.free(); } catch (_) {}
+  wakeRecognizer = null;
+  try { cmdRecognizer?.free(); } catch (_) {}
+  cmdRecognizer = createCmdRecognizer();
+  deafUntil = Date.now() + WAKE_COOLDOWN_MS; // skip any TTS echo at the start
+  emit('state', 'listening');
+  resetCommandTimeout();
+}
+
+/**
  * Wake-word detection using grammar-constrained recognizer.
  */
 function processWake(buffer) {
   if (!wakeRecognizer) return;
-  // Ignore audio for a beat after arming, so TTS tail/echo can't self-trigger.
-  if (Date.now() < wakeArmedAt) return;
 
   const done = wakeRecognizer.acceptWaveform(buffer);
 
@@ -174,15 +195,7 @@ function processWake(buffer) {
 
 function triggerWake() {
   console.log('[voice] Wake word detected!');
-  awake = true;
-  emit('state', 'listening');
-
-  // Clean up wake recognizer, create command recognizer
-  try { wakeRecognizer.free(); } catch (_) {}
-  wakeRecognizer = null;
-  cmdRecognizer = createCmdRecognizer();
-
-  resetCommandTimeout();
+  enterCommandMode();
 }
 
 /**
@@ -197,23 +210,24 @@ function processCommand(buffer) {
     const result = cmdRecognizer.result();
     const text = (result.text || '').trim();
 
-    clearTimeout(commandTimer);
-    commandTimer = null;
-
-    // Clean up command recognizer, prepare wake recognizer for next cycle
-    try { cmdRecognizer.free(); } catch (_) {}
-    cmdRecognizer = null;
-    awake = false;
-
     if (text.length > 0) {
+      // Real command — hand it off. The reply pipeline pauses voice and, when it
+      // finishes speaking, resume() reopens the follow-up window for a reply.
+      clearTimeout(commandTimer);
+      commandTimer = null;
+      try { cmdRecognizer.free(); } catch (_) {}
+      cmdRecognizer = null;
+      awake = false;
       console.log('[voice] Command:', text);
       onTranscriptCb(text);
+      wakeRecognizer = createWakeRecognizer(); // fallback; resume() reopens the window
     } else {
-      console.log('[voice] Empty command, returning to idle.');
-      emit('state', 'idle');
+      // Silence/noise with no words — keep the conversation window open and let
+      // the silence timer decide when to go dormant (≥ COMMAND_TIMEOUT_MS).
+      try { cmdRecognizer.free(); } catch (_) {}
+      cmdRecognizer = createCmdRecognizer();
+      resetCommandTimeout();
     }
-
-    wakeRecognizer = createWakeRecognizer();
   } else {
     // Show partial transcript while user speaks
     const partial = cmdRecognizer.partialResult();
@@ -260,16 +274,19 @@ function pause() {
   clearTimeout(commandTimer);
 }
 
-/** Resume the voice loop. */
+/**
+ * Resume the voice loop after a reply. Reopens a command-listening window so the
+ * user can continue the conversation for a few seconds without repeating "Jarvis".
+ * If voice isn't available, fall back to idle.
+ */
 function resume() {
   paused = false;
-  awake = false;
-  // Reset recognizers to avoid stale audio
-  try { wakeRecognizer?.free(); } catch (_) {}
-  try { cmdRecognizer?.free(); } catch (_) {}
-  cmdRecognizer = null;
-  wakeRecognizer = createWakeRecognizer();
-  wakeArmedAt = Date.now() + WAKE_COOLDOWN_MS;
+  if (!model || !running) {
+    awake = false;
+    emit('state', 'idle');
+    return;
+  }
+  enterCommandMode();
 }
 
 /** Toggle mute. Returns new muted state. */

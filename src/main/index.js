@@ -146,7 +146,6 @@ async function handleUtterance(text) {
   // Safety: if renderer doesn't send tts:ended within 30s, auto-reset
   processingTimeout = setTimeout(() => {
     console.warn('[main] TTS timeout — auto-resetting state');
-    send('state', 'idle');
     voice.resume();
   }, 30000);
 }
@@ -342,7 +341,8 @@ ipcMain.on('cmd:submit', async (_event, text) => {
 
 ipcMain.on('tts:ended', () => {
   clearTimeout(processingTimeout);
-  send('state', 'idle');
+  // voice.resume() reopens the follow-up window and emits 'listening' (or 'idle'
+  // if voice is unavailable), so don't force a state here.
   voice.resume();
 });
 
