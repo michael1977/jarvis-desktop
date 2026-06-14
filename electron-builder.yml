@@ -76,7 +76,12 @@ mac:
       arch: [x64, arm64]
   category: public.app-category.productivity
   icon: assets/icon.png
+  # CFBundleName must NOT have a trailing period — the productName "J.A.R.V.I.S."
+  # makes Electron's helper-app lookup fail and the app crashes on launch
+  # (EXC_BREAKPOINT). Pin a period-free bundle name; keep the dotted display name.
   extendInfo:
+    CFBundleName: "J.A.R.V.I.S"
+    CFBundleDisplayName: "J.A.R.V.I.S."
     NSMicrophoneUsageDescription: "J.A.R.V.I.S. needs microphone access for voice commands."
 
 dmg:
