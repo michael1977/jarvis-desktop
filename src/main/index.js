@@ -88,6 +88,43 @@ function getCpuUsage() {
   return dTotal > 0 ? ((1 - dIdle / dTotal) * 100) : 0;
 }
 
+// Enumerate fixed drive roots once (C:\ … Z:\ on Windows, / elsewhere).
+let diskRoots = null;
+function listDriveRoots() {
+  if (process.platform === 'win32') {
+    const roots = [];
+    for (let c = 67; c <= 90; c++) {
+      const r = String.fromCharCode(c) + ':\\';
+      try { if (fs.existsSync(r)) roots.push(r); } catch (_) {}
+    }
+    return roots.length ? roots : ['C:\\'];
+  }
+  return ['/'];
+}
+
+// Fast per-drive usage via statfs (no PowerShell) — safe to poll every tick.
+function getDisks() {
+  if (!diskRoots) diskRoots = listDriveRoots();
+  const disks = [];
+  for (const root of diskRoots) {
+    try {
+      const s = fs.statfsSync(root);
+      const total = s.blocks * s.bsize;
+      const free = s.bfree * s.bsize;
+      if (!total) continue;
+      const used = total - free;
+      disks.push({
+        name: process.platform === 'win32' ? root.slice(0, 2) : root,
+        usedGb: Math.round(used / 1e9),
+        freeGb: Math.round(free / 1e9),
+        totalGb: Math.round(total / 1e9),
+        pct: Math.round((used / total) * 100),
+      });
+    } catch (_) {}
+  }
+  return disks;
+}
+
 function startTelemetry() {
   getCpuUsage(); // prime
   setInterval(() => {
@@ -104,6 +141,7 @@ function startTelemetry() {
       uptime: uptimeH,
       cores: os.cpus().length,
       platform: process.platform === 'win32' ? 'Windows' : 'macOS',
+      disks: getDisks(),
     });
   }, 2000);
 }

@@ -51,6 +51,36 @@ function setVital(key, text, barPct) {
   if (bar) bar.style.width = Math.max(2, Math.min(100, barPct)) + '%';
 }
 
+// Disk drives are dynamic (one row per fixed drive). Build rows once, then update
+// values/bars in place so the bar transitions stay smooth.
+const diskRows = {};
+function renderDisks(disks) {
+  const cont = document.getElementById('disk-vitals');
+  if (!cont) return;
+  const sig = disks.map(d => d.name).join(',');
+  if (cont.dataset.sig !== sig) {
+    cont.innerHTML = '';
+    for (const k of Object.keys(diskRows)) delete diskRows[k];
+    for (const d of disks) {
+      const el = document.createElement('div');
+      el.className = 'vital';
+      el.innerHTML =
+        `<div class="row"><span>DISK ${d.name}</span><span class="v"></span></div>` +
+        `<div class="bar"><i style="width:0"></i></div>`;
+      cont.appendChild(el);
+      diskRows[d.name] = { val: el.querySelector('.v'), barWrap: el.querySelector('.bar'), bar: el.querySelector('.bar i') };
+    }
+    cont.dataset.sig = sig;
+  }
+  for (const d of disks) {
+    const r = diskRows[d.name];
+    if (!r) continue;
+    r.val.textContent = `${d.usedGb} / ${d.totalGb} GB`;
+    r.bar.style.width = Math.max(2, Math.min(100, d.pct)) + '%';
+    r.barWrap.classList.toggle('warn', d.pct > 90);
+  }
+}
+
 window.jarvis.onTelemetry((d) => {
   const cpuPct = Math.round(d.cpu);
   setVital('cpu', cpuPct + ' %', cpuPct + (boost > 0 ? boost * 0.4 : 0));
@@ -70,6 +100,8 @@ window.jarvis.onTelemetry((d) => {
   const hrs = Math.floor(d.uptime);
   const mins = Math.round((d.uptime - hrs) * 60);
   setVital('sysup', `${hrs}h ${pad(mins)}m`, Math.min(100, d.uptime * 0.5));
+
+  if (d.disks) renderDisks(d.disks);
 
   // Update the uptime display in the header too
   document.getElementById('uptime').textContent = `UP ${hrs}h ${pad(mins)}m`;
