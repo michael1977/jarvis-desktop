@@ -40,6 +40,11 @@ all driving a glassy heads-up-display overlay. Targets Windows (primary) and mac
   installed model (prefers non-"small"); `download-model` fetches this one.
 - `JARVIS_MIC_DEVICE` — input device id to pin a specific mic (ids are logged at
   startup under "Input devices"). Default is the system default input.
+- `JARVIS_MEMORY_DIR` — where conversation + long-term memory live. By default
+  `index.js` (`resolveMemoryDir`) auto-detects Google Drive and uses
+  `<Google Drive>/Jarvis` so memory syncs across machines; falls back to userData.
+  On first switch, existing local memory is copied over (`migrateMemory`, never
+  overwrites). Memory files: `conversation.json`, `memory.json`.
 
 ## Gotchas
 - **Native modules** (`naudiodon`, `vosk-koffi`/`koffi`): rebuilt against Electron's ABI.

@@ -42,6 +42,53 @@ const autoLauncher = new AutoLaunch({
   isHidden: true,
 });
 
+// Resolve where conversation + long-term memory are stored. Prefers a Google Drive
+// "Jarvis" folder so memory syncs across machines; falls back to local userData.
+function resolveMemoryDir() {
+  // 1. Explicit override
+  if (process.env.JARVIS_MEMORY_DIR) {
+    try { fs.mkdirSync(process.env.JARVIS_MEMORY_DIR, { recursive: true }); return process.env.JARVIS_MEMORY_DIR; } catch (_) {}
+  }
+  // 2. Auto-detect Google Drive
+  const candidates = [];
+  if (process.platform === 'win32') {
+    for (let c = 67; c <= 90; c++) candidates.push(`${String.fromCharCode(c)}:\\My Drive`); // G:\My Drive etc.
+    candidates.push(path.join(os.homedir(), 'My Drive'));
+    candidates.push(path.join(os.homedir(), 'Google Drive'));
+  } else {
+    const cs = path.join(os.homedir(), 'Library', 'CloudStorage'); // macOS Google Drive for Desktop
+    try {
+      for (const d of fs.readdirSync(cs)) {
+        if (d.startsWith('GoogleDrive')) candidates.push(path.join(cs, d, 'My Drive'));
+      }
+    } catch (_) {}
+    candidates.push(path.join(os.homedir(), 'Google Drive'));
+  }
+  for (const base of candidates) {
+    try {
+      if (fs.existsSync(base)) {
+        const dir = path.join(base, 'Jarvis');
+        fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      }
+    } catch (_) {}
+  }
+  // 3. Fallback: local (no cross-machine sync)
+  return app.getPath('userData');
+}
+
+// One-time copy of existing local memory into the (new) memory dir so switching to
+// Google Drive doesn't lose what Jarvis already learned. Never overwrites.
+function migrateMemory(fromDir, toDir) {
+  if (!fromDir || !toDir || fromDir === toDir) return;
+  for (const f of ['memory.json', 'conversation.json']) {
+    try {
+      const src = path.join(fromDir, f), dst = path.join(toDir, f);
+      if (fs.existsSync(src) && !fs.existsSync(dst)) fs.copyFileSync(src, dst);
+    } catch (_) {}
+  }
+}
+
 // Lightweight crash logging (pure JS, no native dep). Records GPU/renderer/child
 // process failures to userData/crash-events.log so issues are diagnosable.
 function logCrash(kind, details) {
@@ -422,10 +469,16 @@ app.whenReady().then(async () => {
 
   // Initialize brain
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Persist conversation + long-term memory in a Google Drive "Jarvis" folder when
+  // available, so memory syncs across all the user's computers. Falls back to local
+  // userData. Override with JARVIS_MEMORY_DIR.
+  const memoryDir = resolveMemoryDir();
+  migrateMemory(app.getPath('userData'), memoryDir); // carry over any existing local memory
+  console.log('[main] Memory dir:', memoryDir);
   const brainOk = brain.init(apiKey, {
     model: process.env.JARVIS_MODEL || 'claude-opus-4-8',
     onEvent: (event, data) => send(event, data),
-    storeDir: app.getPath('userData'), // persist conversation + long-term memory here
+    storeDir: memoryDir,
   });
   if (!brainOk) {
     console.warn('[main] No ANTHROPIC_API_KEY. Brain will use fallback replies.');
