@@ -2,6 +2,10 @@ appId: com.jarvis.desktop
 productName: J.A.R.V.I.S.
 copyright: Copyright (c) 2026
 
+# Ad-hoc sign the Mac app bundle after assembly so the DMG ships signed.
+# Works without a developer certificate — CI uses `codesign --sign -`.
+afterSign: scripts/afterSign.js
+
 # Update source for electron-updater. Generates latest.yml / latest-mac.yml so
 # installed apps can detect and download new GitHub releases.
 publish:
