@@ -1,6 +1,6 @@
 {
   "name": "jarvis-desktop",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "J.A.R.V.I.S. Desktop — always-on voice assistant with sci-fi HUD",
   "main": "src/main/index.js",
   "scripts": {
