@@ -626,8 +626,9 @@ app.on('before-quit', () => {
   });
 
   let vModel = null, wakeRec = null, cmdRec = null;
-  let rvAwake = false, rvTimer = null;
+  let rvAwake = false, rvTimer = null, rvDeafUntil = 0;
   const SAMPLE_RATE = 16000;
+  const CMD_TIMEOUT = 8000; // 8s of silence before returning to dormant
 
   function initVosk() {
     // Wait until voice module has finished trying (and failing) before we take over
@@ -666,8 +667,11 @@ app.on('before-quit', () => {
     send('state', 'listening');
     const vosk = require('vosk-koffi');
     try { wakeRec?.free(); } catch (_) {}
+    wakeRec = null;
+    try { cmdRec?.free(); } catch (_) {}
     cmdRec  = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE });
-    rvTimer = setTimeout(goSleep, 8000);
+    clearTimeout(rvTimer);
+    rvTimer = setTimeout(goSleep, CMD_TIMEOUT);
   }
 
   function goSleep() {
@@ -677,24 +681,29 @@ app.on('before-quit', () => {
     const vosk = require('vosk-koffi');
     try { cmdRec?.free(); } catch (_) {}
     cmdRec  = null;
-    wakeRec = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE, grammar: ['jarvis', '[unk]'] });
+    if (!wakeRec) wakeRec = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE, grammar: ['jarvis', '[unk]'] });
+    // Deaf period so Jarvis's own TTS echo can't re-trigger the wake word
+    rvDeafUntil = Date.now() + 1500;
   }
 
   ipcMain.on('audio:chunk', (_e, arrayBuffer) => {
     if (!vModel || voice.isRunning()) return;
+    if (Date.now() < rvDeafUntil) return; // ignore audio during deaf period
     const buf = Buffer.from(arrayBuffer);
 
     if (!rvAwake) {
+      // Wake word detection — only trigger on FINAL results, not partials,
+      // to avoid false positives from background speech
       const done = wakeRec.acceptWaveform(buf);
-      const part = (wakeRec.partialResult().partial || '').toLowerCase();
-      if (part.includes('jarvis')) { goAwake(); return; }
       if (done) {
-        if ((wakeRec.result().text || '').toLowerCase().includes('jarvis')) goAwake();
+        const text = (wakeRec.result().text || '').toLowerCase();
+        if (text.includes('jarvis')) goAwake();
       }
     } else {
       const done = cmdRec.acceptWaveform(buf);
       const part = (cmdRec.partialResult().partial || '').trim();
-      if (part) { send('transcript:partial', part); clearTimeout(rvTimer); rvTimer = setTimeout(goSleep, 8000); }
+      // Reset silence timer on any speech activity
+      if (part) { send('transcript:partial', part); clearTimeout(rvTimer); rvTimer = setTimeout(goSleep, CMD_TIMEOUT); }
       if (done) {
         const text = (cmdRec.result().text || '').trim();
         goSleep();

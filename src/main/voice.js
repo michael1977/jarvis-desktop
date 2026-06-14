@@ -37,10 +37,9 @@ let micDeviceId = -1;        // -1 = system default input
 let emit = () => {};
 let onTranscriptCb = () => {};
 
-// After Jarvis replies it keeps listening for this long (silence window) before
-// going dormant, so a back-and-forth conversation needs only one "Hey Jarvis".
-// The timer resets whenever the user is mid-sentence, so it's a minimum, not a cap.
-const COMMAND_TIMEOUT_MS = 9000; // ~8s of real listening after the echo guard
+// How long to wait for a command after wake before going dormant.
+// The timer resets whenever the user is mid-sentence, so this is silence duration.
+const COMMAND_TIMEOUT_MS = 8000; // 8s of silence before returning to wake-word detection
 let commandTimer = null;
 
 // Brief deafness after (re)arming, so Jarvis doesn't trigger on the tail of its
@@ -284,18 +283,19 @@ function pause() {
 }
 
 /**
- * Resume the voice loop after a reply. Reopens a command-listening window so the
- * user can continue the conversation for a few seconds without repeating "Jarvis".
- * If voice isn't available, fall back to idle.
+ * Resume the voice loop after a reply. Returns to wake-word detection (DORMANT)
+ * so Jarvis only activates again when explicitly called by name.
  */
 function resume() {
   paused = false;
-  if (!model || !running) {
-    awake = false;
-    emit('state', 'idle');
-    return;
-  }
-  enterCommandMode();
+  awake = false;
+  clearTimeout(commandTimer);
+  try { cmdRecognizer?.free(); } catch (_) {}
+  cmdRecognizer = null;
+  if (!wakeRecognizer && model) wakeRecognizer = createWakeRecognizer();
+  // Brief deaf period so Jarvis doesn't hear its own TTS echo as a wake word
+  deafUntil = Date.now() + 1500;
+  emit('state', 'idle');
 }
 
 /** Toggle mute. Returns new muted state. */
