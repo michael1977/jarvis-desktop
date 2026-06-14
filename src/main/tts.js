@@ -11,18 +11,13 @@ let ready = false;
 
 async function init(voice) {
   if (voice) currentVoice = voice;
-  // Verify the voice works with a quick test
-  try {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(currentVoice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-    ready = true;
-    console.log('[tts] Initialized with voice:', currentVoice);
-    return true;
-  } catch (e) {
-    console.error('[tts] Init failed:', e.message);
-    ready = false;
-    return false;
-  }
+  // Don't open a test WebSocket connection here — the local MsEdgeTTS instance
+  // would be GC'd by V8 after init() returns while the underlying TLS stream is
+  // still live, causing a null-callback crash (PC=0) on macOS 26.
+  // First real synthesize() call will surface any voice errors naturally.
+  ready = true;
+  console.log('[tts] Initialized with voice:', currentVoice);
+  return true;
 }
 
 /**
