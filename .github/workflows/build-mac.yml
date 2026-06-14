@@ -1,0 +1,69 @@
+name: Build macOS
+
+# Builds the J.A.R.V.I.S. macOS .dmg (+ .zip) in the cloud.
+# - Pushes to main / manual runs: produces downloadable build artifacts.
+# - Pushing a tag like v0.1.0: also publishes a GitHub Release with the dmgs attached.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13   # Intel
+            arch: x64
+          - runner: macos-14   # Apple Silicon
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Rebuild native modules for Electron (${{ matrix.arch }})
+        run: npx @electron/rebuild -f
+
+      - name: Download Vosk speech model
+        run: npm run download-model
+
+      - name: Build macOS app (${{ matrix.arch }})
+        env:
+          # No signing certs in CI — build unsigned (ad-hoc). Avoids signing failures.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-mac-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create the release if it doesn't exist yet (|| true: the other matrix
+          # job may have already created it), then upload this arch's artifacts.
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+            --notes "Automated macOS build." 2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*.zip --clobber
