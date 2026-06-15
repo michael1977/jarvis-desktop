@@ -11,6 +11,22 @@ const os = require('os');
 // (and that crash path) entirely. Must run before app 'ready'.
 app.disableHardwareAcceleration();
 
+// Single-instance lock: without this, every launch (boot auto-start, re-opening,
+// reinstalls) spawns ANOTHER full copy — each grabbing the mic and fighting over
+// the GPU cache, so none respond. Keep exactly one instance; focus it on relaunch.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // Patch require resolution BEFORE any native modules are loaded, and neutralize
 // naudiodon's bundled segfault-handler (its broken native handler was crashing
 // the whole app — see native-modules.js). Both must run before voice/naudiodon.
@@ -484,6 +500,8 @@ ipcMain.on('show:input-menu', () => {
 // ---- App lifecycle ----
 
 app.whenReady().then(async () => {
+  // Second instance: bail before any heavy init (mic, brain) — we're quitting.
+  if (!gotSingleInstanceLock) return;
   // In dev: appDir is the project root. Packaged: resources are in process.resourcesPath
   isPacked = app.isPackaged;
   appDir = isPacked ? process.resourcesPath : path.join(__dirname, '..', '..');
