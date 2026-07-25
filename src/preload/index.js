@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('jarvis', {
   showInputMenu: ()     => ipcRenderer.send('show:input-menu'),
   ttsEnded:      ()     => ipcRenderer.send('tts:ended'),
   micToggle:     ()     => ipcRenderer.send('mic:toggle'),
-  // Mac macOS 26 voice bridge: renderer captures mic via getUserMedia, sends PCM to main→Vosk
+  // Renderer voice bridge: main tells renderer to capture mic via getUserMedia;
+  // renderer sends PCM Int16 chunks back to main -> Vosk.
+  onVoiceStartCapture: (cb) => ipcRenderer.on('voice:start-capture', (_e, d) => cb(d)),
   sendAudioChunk: (buf) => ipcRenderer.send('audio:chunk', buf),
 });

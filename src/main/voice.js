@@ -21,9 +21,14 @@ const fs = require('fs');
 const vosk = require('vosk-koffi');
 const portAudio = require('naudiodon');
 
-const SAMPLE_RATE = 16000;
+const SAMPLE_RATE = 16000;   // rate Vosk expects
 const CHANNELS = 1;
-const FRAME_SIZE = 4000; // ~250ms of 16-bit mono at 16 kHz
+// Many laptop mics (e.g. Intel Smart Sound array) are natively 48 kHz and reject
+// a 16 kHz capture. We try 16 kHz first, then fall back to capturing at the
+// device's native rate and downsampling to 16 kHz for Vosk.
+const CAPTURE_RATES = [16000, 48000, 44100];
+let captureRate = 16000;     // actual open rate (set in start())
+const FRAME_SIZE = 4000;     // ~250ms at 16 kHz
 
 let model = null;
 let wakeRecognizer = null;   // grammar-constrained: only "jarvis"
@@ -34,6 +39,8 @@ let muted = false;
 let paused = false;
 let awake = false;
 let micDeviceId = -1;        // -1 = system default input
+let micCandidates = [-1];    // ordered device ids to try opening
+let dbgBytes = 0, dbgPeak = 0, dbgLast = 0; // audio-activity diagnostics
 let emit = () => {};
 let onTranscriptCb = () => {};
 
@@ -47,6 +54,32 @@ let commandTimer = null;
 const WAKE_COOLDOWN_MS = 900;
 let deafUntil = 0;
 
+// Boost weak mics (some laptop mics only reach ~7% level). Applied to the 16-bit
+// PCM before recognition. Tune with JARVIS_MIC_GAIN; 1 = off.
+// Downsample 16-bit PCM by an integer factor (48k->16k = 3) by averaging each
+// group of `factor` samples — cheap anti-aliasing, good enough for speech.
+function downsample(buffer, factor) {
+  const inSamples = Math.floor(buffer.length / 2);
+  const outSamples = Math.floor(inSamples / factor);
+  const out = Buffer.alloc(outSamples * 2);
+  for (let o = 0; o < outSamples; o++) {
+    let sum = 0;
+    for (let k = 0; k < factor; k++) sum += buffer.readInt16LE((o * factor + k) * 2);
+    out.writeInt16LE((sum / factor) | 0, o * 2);
+  }
+  return out;
+}
+
+const MIC_GAIN = Math.max(1, parseFloat(process.env.JARVIS_MIC_GAIN || '4'));
+function applyGain(buffer) {
+  if (MIC_GAIN === 1) return;
+  for (let i = 0; i + 1 < buffer.length; i += 2) {
+    let s = buffer.readInt16LE(i) * MIC_GAIN;
+    if (s > 32767) s = 32767; else if (s < -32768) s = -32768;
+    buffer.writeInt16LE(s | 0, i);
+  }
+}
+
 /**
  * Initialize the Vosk model.
  * @param {string} modelPath - path to vosk model directory
@@ -54,6 +87,30 @@ let deafUntil = 0;
  * @param {function} opts.onEvent - callback(event, data)
  * @returns {boolean} success
  */
+/**
+ * Rank real, physical laptop microphones from PortAudio's input list (best first),
+ * skipping phones (Bluetooth "Hands-Free"), loopback (Stereo Mix), mappers and
+ * virtual devices. Returns an ordered array of device ids to try. start() opens
+ * them in order until one accepts the 16 kHz capture format (WASAPI/WDM-KS mics
+ * often reject 16 kHz; MME mics resample and work).
+ */
+function rankInputDevices(inputs) {
+  if (!inputs || !inputs.length) return [];
+  const bad = /hands-free|iphone|android|airpod|bluetooth|bthhfenum|stereo mix|sound mapper|@system32|virtual|nvidia|vb-audio|voicemeeter|line in|what u hear/i;
+  const real = inputs.filter(d => d.name && !bad.test(d.name));
+  const rank = (d) => {
+    const n = (d.name || '').toLowerCase();
+    // MME devices (name truncated to ~31 chars) resample to 16 kHz — prefer them.
+    let score = (d.name && d.name.length <= 31) ? 0 : 10;
+    if (n.includes('microphone array')) score += 1;
+    else if (n.includes('microphone')) score += 2;
+    else score += 4;
+    return score;
+  };
+  real.sort((a, b) => rank(a) - rank(b) || a.id - b.id);
+  return real.map(d => d.id);
+}
+
 function init(modelPath, opts = {}) {
   if (!modelPath || !fs.existsSync(modelPath)) {
     console.warn('[voice] Model path not found:', modelPath);
@@ -61,14 +118,21 @@ function init(modelPath, opts = {}) {
   }
 
   if (opts.onEvent) emit = opts.onEvent;
-  if (typeof opts.deviceId === 'number' && !Number.isNaN(opts.deviceId)) micDeviceId = opts.deviceId;
+  const explicitDevice = typeof opts.deviceId === 'number' && !Number.isNaN(opts.deviceId) && opts.deviceId >= 0;
 
-  // Log available input devices so a specific mic can be chosen via JARVIS_MIC_DEVICE.
+  // Build the ordered list of mic device ids to try. An explicit JARVIS_MIC_DEVICE
+  // is tried first; then ranked real mics; then the system default (-1) as a last
+  // resort. start() opens them in order until one accepts 16 kHz capture.
   try {
     const inputs = portAudio.getDevices().filter(d => d.maxInputChannels > 0);
+    micCandidates = [];
+    if (explicitDevice) micCandidates.push(opts.deviceId);
+    micCandidates.push(-1); // system default FIRST — matches the mic Windows uses/tests
+    for (const id of rankInputDevices(inputs)) if (!micCandidates.includes(id)) micCandidates.push(id);
     console.log('[voice] Input devices:');
-    for (const d of inputs) console.log(`  id ${d.id}: ${d.name}${d.id === micDeviceId ? '  <- selected' : ''}`);
-  } catch (_) {}
+    for (const d of inputs) console.log(`  id ${d.id}: ${d.name}`);
+    console.log('[voice] Mic candidates (in order):', micCandidates.join(', '));
+  } catch (_) { micCandidates = [-1]; }
 
   try {
     vosk.setLogLevel(-1);
@@ -112,24 +176,56 @@ function start(onTranscript) {
   wakeRecognizer = createWakeRecognizer();
   deafUntil = Date.now() + WAKE_COOLDOWN_MS;
 
-  try {
-    audioStream = portAudio.AudioIO({
-      inOptions: {
-        channelCount: CHANNELS,
-        sampleFormat: portAudio.SampleFormat16Bit,
-        sampleRate: SAMPLE_RATE,
-        deviceId: micDeviceId,
-        framesPerBuffer: FRAME_SIZE,
-      },
-    });
-  } catch (e) {
-    console.error('[voice] Failed to open audio stream:', e.message);
+  // Try each candidate device at each capture rate until one opens. WASAPI mics
+  // reject 16 kHz and must be captured at their native rate (48 kHz) then
+  // downsampled. Skips iPhone/virtual devices (see rankInputDevices).
+  audioStream = null;
+  outer:
+  for (const dev of micCandidates) {
+    for (const rate of CAPTURE_RATES) {
+      try {
+        audioStream = portAudio.AudioIO({
+          inOptions: {
+            channelCount: CHANNELS,
+            sampleFormat: portAudio.SampleFormat16Bit,
+            sampleRate: rate,
+            deviceId: dev,
+            framesPerBuffer: Math.round(FRAME_SIZE * rate / SAMPLE_RATE),
+          },
+        });
+        micDeviceId = dev;
+        captureRate = rate;
+        console.log('[voice] Opened mic device id:', dev, 'at', rate, 'Hz');
+        break outer;
+      } catch (e) {
+        audioStream = null; // try next rate/device
+      }
+    }
+  }
+  if (!audioStream) {
+    console.error('[voice] No usable microphone found');
     running = false;
     return;
   }
 
+  const decim = Math.round(captureRate / SAMPLE_RATE); // 1 for 16k, 3 for 48k
+
   audioStream.on('data', (buffer) => {
     if (!running || muted || paused) return;
+    // Downsample to 16 kHz for Vosk when captured at a higher native rate.
+    if (decim > 1) buffer = downsample(buffer, decim);
+    applyGain(buffer); // boost weak mic signal before recognition
+    // Diagnostics: is the mic actually capturing sound? (peak ~0 = silent/wrong device)
+    dbgBytes += buffer.length;
+    for (let i = 0; i + 1 < buffer.length; i += 2) {
+      const s = Math.abs(buffer.readInt16LE(i));
+      if (s > dbgPeak) dbgPeak = s;
+    }
+    const now = Date.now();
+    if (now - dbgLast > 3000) {
+      console.log(`[voice] audio @${captureRate}Hz: ${dbgBytes} bytes/3s, peak ${dbgPeak}/32767 ${dbgPeak < 200 ? '(SILENT?)' : ''}`);
+      dbgBytes = 0; dbgPeak = 0; dbgLast = now;
+    }
     processAudio(buffer);
   });
 
@@ -186,6 +282,7 @@ function processWake(buffer) {
   const partial = wakeRecognizer.partialResult();
   const partialText = (partial.partial || '').toLowerCase().trim();
 
+  if (partialText) console.log('[voice] wake heard:', JSON.stringify(partialText));
   if (partialText.includes('jarvis')) {
     triggerWake();
     return;

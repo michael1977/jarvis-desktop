@@ -54,6 +54,13 @@ let isPacked = false;
 let appDir = '';
 let wallpaperMode = true; // default to wallpaper mode
 
+// Use the renderer's getUserMedia capture (Chromium audio stack + automatic gain
+// control) instead of naudiodon where PortAudio can't capture the mic: Windows
+// (Intel Smart Sound DMIC arrays return pure silence) and macOS 26+ (PortAudio
+// crashes). Elsewhere, keep the native naudiodon pipeline.
+const USE_RENDERER_VOICE = process.platform === 'win32' ||
+  (process.platform === 'darwin' && parseInt(os.release().split('.')[0], 10) >= 25);
+
 const autoLauncher = new AutoLaunch({
   name: 'J.A.R.V.I.S.',
   isHidden: true,
@@ -300,6 +307,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // Jarvis is a wallpaper overlay that's always behind other windows. Chromium
+      // throttles unfocused/occluded windows, which would starve the getUserMedia
+      // audio processing — disable throttling so voice keeps working in the
+      // background. Also keeps the HUD animating smoothly underneath other apps.
+      backgroundThrottling: false,
     },
   });
 
@@ -312,6 +324,12 @@ function createWindow() {
   }
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  // Once the renderer is fully loaded (listeners attached), tell it to open the
+  // mic if we're using the getUserMedia path. did-finish-load avoids the race
+  // where an earlier signal fires before the renderer registered its listener.
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (USE_RENDERER_VOICE) mainWindow.webContents.send('voice:start-capture', true);
+  });
   mainWindow.webContents.on('console-message', (_e, level, msg, line, src) => {
     console.log(`[RENDERER L${level}] ${msg}`);
   });
@@ -592,8 +610,10 @@ app.whenReady().then(async () => {
     ]},
   ]));
 
-  if (voiceOk) {
+  if (voiceOk && !USE_RENDERER_VOICE) {
     voice.start((transcript) => handleUtterance(transcript));
+  } else if (USE_RENDERER_VOICE) {
+    console.log('[main] Using renderer getUserMedia voice capture (naudiodon skipped)');
   } else {
     console.warn('[main] Voice pipeline not available. Run: npm run download-model');
   }
@@ -620,15 +640,12 @@ app.on('before-quit', () => {
   voice.stop();
 });
 
-// ── Mac macOS 26 renderer-voice fallback ──────────────────────────────────────
-// naudiodon / PortAudio crashes on macOS 26 (Darwin 25+). When the native voice
-// pipeline fails, the renderer captures mic audio via getUserMedia and sends
-// raw PCM Int16 chunks over IPC to Vosk running here in the main process.
-;(function macRendererVoice() {
-  if (process.platform !== 'darwin') return;
-  const os = require('os');
-  const darwinMajor = parseInt(os.release().split('.')[0], 10);
-  if (darwinMajor < 25) return; // Only needed on macOS 26+
+// ── Renderer-voice pipeline (getUserMedia → PCM → IPC → Vosk) ─────────────────
+// Used where naudiodon/PortAudio can't capture the mic (Windows Intel Smart Sound
+// arrays return silence; macOS 26 crashes). The renderer captures via getUserMedia
+// (Chromium audio stack + AGC) and streams raw PCM Int16 chunks to Vosk here.
+;(function rendererVoice() {
+  if (!USE_RENDERER_VOICE) return;
 
   const { session } = require('electron');
 
@@ -640,7 +657,7 @@ app.on('before-quit', () => {
     session.defaultSession.setPermissionCheckHandler((wc, perm) =>
       ['media', 'microphone', 'speech-recognition'].includes(perm)
     );
-    console.log('[mac-voice] Permission handlers registered for macOS 26+');
+    console.log('[renderer-voice] Permission handlers registered');
   });
 
   let vModel = null, wakeRec = null, cmdRec = null;
@@ -672,12 +689,13 @@ app.on('before-quit', () => {
         vosk.setLogLevel(-1);
         vModel  = new vosk.Model(modelPath);
         wakeRec = new vosk.Recognizer({ model: vModel, sampleRate: SAMPLE_RATE, grammar: ['jarvis', '[unk]'] });
-        console.log('[mac-voice] Vosk renderer-voice ready');
+        console.log('[renderer-voice] Vosk ready — asking renderer to start mic capture');
         send('voice:status', 'active');
+        send('voice:start-capture', true); // tell the HUD to open getUserMedia
       } catch (e) {
-        console.error('[mac-voice] Vosk init failed:', e.message);
+        console.error('[renderer-voice] Vosk init failed:', e.message);
       }
-    }, 4000); // give native pipeline time to start (or fail)
+    }, 2000);
   }
 
   function goAwake() {
@@ -704,17 +722,31 @@ app.on('before-quit', () => {
     rvDeafUntil = Date.now() + 1500;
   }
 
+  let rvDbgBytes = 0, rvDbgPeak = 0, rvDbgLast = 0;
   ipcMain.on('audio:chunk', (_e, arrayBuffer) => {
     if (!vModel || voice.isRunning()) return;
-    if (Date.now() < rvDeafUntil) return; // ignore audio during deaf period
     const buf = Buffer.from(arrayBuffer);
 
+    // Diagnostics: confirm the renderer mic actually has signal.
+    rvDbgBytes += buf.length;
+    for (let i = 0; i + 1 < buf.length; i += 2) { const s = Math.abs(buf.readInt16LE(i)); if (s > rvDbgPeak) rvDbgPeak = s; }
+    const now = Date.now();
+    if (now - rvDbgLast > 3000) {
+      console.log(`[renderer-voice] audio: ${rvDbgBytes} bytes/3s, peak ${rvDbgPeak}/32767 ${rvDbgPeak < 200 ? '(SILENT?)' : '(OK)'}`);
+      rvDbgBytes = 0; rvDbgPeak = 0; rvDbgLast = now;
+    }
+
+    if (Date.now() < rvDeafUntil) return; // ignore audio during deaf period
+
     if (!rvAwake) {
-      // Wake word detection — only trigger on FINAL results, not partials,
-      // to avoid false positives from background speech
+      // Wake word detection: match on partial (responsive) or final result.
       const done = wakeRec.acceptWaveform(buf);
+      const part = (wakeRec.partialResult().partial || '').toLowerCase().trim();
+      if (part) console.log('[renderer-voice] wake heard:', JSON.stringify(part));
+      if (part.includes('jarvis')) { goAwake(); return; }
       if (done) {
         const text = (wakeRec.result().text || '').toLowerCase();
+        if (text) console.log('[renderer-voice] wake final:', JSON.stringify(text));
         if (text.includes('jarvis')) goAwake();
       }
     } else {
