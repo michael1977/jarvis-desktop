@@ -628,6 +628,7 @@ updateAudioAnalysis();
 const cmdEl = document.getElementById('cmd');
 const cmdline = document.getElementById('cmdline');
 let busy = false;
+let micDeafUntil = 0; // brief mic suppression after TTS so echo can't self-trigger
 
 function execute(raw) {
   const text = (raw || '').trim();
@@ -667,6 +668,7 @@ window.jarvis.onState((state) => {
     coreState.textContent = 'SPEAKING';
     targetEnergy = 0.7;
     micBtn.classList.remove('listening');
+    busy = true; // don't let the mic capture Jarvis's own TTS
   } else if (state === 'listening') {
     coreState.textContent = 'LISTENING';
     targetEnergy = 0.8;
@@ -682,6 +684,7 @@ window.jarvis.onState((state) => {
     cmdEl.placeholder = voiceActive
       ? 'Say "Hey J.A.R.V.I.S." to wake me \u2014 or type here'
       : 'Speak or type \u2014 ask J.A.R.V.I.S. anything';
+    if (busy) micDeafUntil = Date.now() + 1500; // was speaking/thinking \u2014 deaf a moment
     busy = false;
     cmdline.classList.remove('busy');
   }
@@ -822,7 +825,7 @@ window.jarvis.onVoiceStartCapture(async () => {
     const proc = ctx.createScriptProcessor(4096, 1, 1);
 
     proc.onaudioprocess = (e) => {
-      if (busy) return; // don't capture while Jarvis is thinking/speaking
+      if (busy || Date.now() < micDeafUntil) return; // not while busy or just after TTS
       const f32 = e.inputBuffer.getChannelData(0);
       const i16 = new Int16Array(f32.length);
       for (let i = 0; i < f32.length; i++)

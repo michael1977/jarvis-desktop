@@ -739,15 +739,13 @@ app.on('before-quit', () => {
     if (Date.now() < rvDeafUntil) return; // ignore audio during deaf period
 
     if (!rvAwake) {
-      // Wake word detection: match on partial (responsive) or final result.
+      // Wake word detection — FINAL results only, and "jarvis" must be a whole
+      // word. Partial matching false-triggered on ambient noise and Jarvis's own
+      // speech (AGC amplifies quiet sounds into phantom "jarvis").
       const done = wakeRec.acceptWaveform(buf);
-      const part = (wakeRec.partialResult().partial || '').toLowerCase().trim();
-      if (part) console.log('[renderer-voice] wake heard:', JSON.stringify(part));
-      if (part.includes('jarvis')) { goAwake(); return; }
       if (done) {
-        const text = (wakeRec.result().text || '').toLowerCase();
-        if (text) console.log('[renderer-voice] wake final:', JSON.stringify(text));
-        if (text.includes('jarvis')) goAwake();
+        const words = (wakeRec.result().text || '').toLowerCase().trim().split(/\s+/);
+        if (words.includes('jarvis')) { console.log('[renderer-voice] wake word detected'); goAwake(); }
       }
     } else {
       const done = cmdRec.acceptWaveform(buf);
