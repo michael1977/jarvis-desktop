@@ -815,8 +815,9 @@ window.jarvis.onVoiceStartCapture(async () => {
       audio: {
         channelCount: 1,
         echoCancellation: true,   // suppress Jarvis's own TTS
-        noiseSuppression: true,
-        autoGainControl: true,    // boost quiet mics (yours reads ~1-7%)
+        noiseSuppression: true,   // remove steady background noise
+        autoGainControl: false,   // AGC ramps gain up in quiet rooms and amplifies
+                                  // the noise floor into phantom "jarvis" — use fixed gain instead
       }
     });
 
@@ -824,12 +825,24 @@ window.jarvis.onVoiceStartCapture(async () => {
     const src  = ctx.createMediaStreamSource(stream);
     const proc = ctx.createScriptProcessor(4096, 1, 1);
 
+    // Fixed gain lifts the weak Intel mic; the energy gate drops near-silence so
+    // amplified room noise never reaches Vosk (the cause of false wakes).
+    const GAIN = 8;      // fixed gain for the weak mic
+    const GATE = 0.006;  // raw peak (fraction of full scale) below which we send silence
+
     proc.onaudioprocess = (e) => {
       if (busy || Date.now() < micDeafUntil) return; // not while busy or just after TTS
       const f32 = e.inputBuffer.getChannelData(0);
+      let peak = 0;
+      for (let i = 0; i < f32.length; i++) { const a = f32[i] < 0 ? -f32[i] : f32[i]; if (a > peak) peak = a; }
       const i16 = new Int16Array(f32.length);
-      for (let i = 0; i < f32.length; i++)
-        i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+      if (peak >= GATE) { // real speech — apply gain; otherwise send silence
+        for (let i = 0; i < f32.length; i++) {
+          let v = f32[i] * GAIN;
+          if (v > 1) v = 1; else if (v < -1) v = -1;
+          i16[i] = v * 32767;
+        }
+      }
       window.jarvis.sendAudioChunk(i16.buffer);
     };
 
