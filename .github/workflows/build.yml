@@ -19,9 +19,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13   # Intel
+          # 2026-08-10: was macos-13 (Intel) / macos-14 (Apple Silicon).
+          #
+          # macos-13 has been RETIRED by GitHub - it is no longer listed in
+          # actions/runner-images at all. The job did not fail fast; it sat in
+          # the queue and was killed at exactly 24h0m1s ("exceeded the maximum
+          # execution time while awaiting a runner"), which marks the whole run
+          # "cancelled". Every build since 2026-07-25 died this way, while the
+          # Windows and arm64 jobs succeeded in 5m and 2m.
+          #
+          # macos-14 is now flagged DEPRECATED in the same table, so the half
+          # that still worked was next in line to break. Both move to macOS 15:
+          #   macos-15-intel -> x64   (standard Intel label; -large is a paid
+          #                            larger runner, deliberately not used)
+          #   macos-15       -> arm64
+          - runner: macos-15-intel   # Intel
             arch: x64
-          - runner: macos-14   # Apple Silicon
+          - runner: macos-15         # Apple Silicon
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
