@@ -12,6 +12,9 @@ publish:
   provider: github
   owner: michael1977
   repo: jarvis-desktop
+  # electron-builder defaults GitHub releases to drafts. Keep tag builds on the
+  # public release so macOS assets land beside the Windows installer.
+  releaseType: release
 
 directories:
   output: dist
