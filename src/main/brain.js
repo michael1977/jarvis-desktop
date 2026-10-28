@@ -40,7 +40,11 @@ function buildSystemPrompt() {
     {
       type: 'text',
       text: SYSTEM_PROMPT_BASE,
-      cache_control: { type: 'ephemeral' },
+      // 1h rather than the default 5m: this block never changes, and a spoken
+      // assistant is used in bursts with long gaps. At 5m almost every burst
+      // re-wrote the whole prefix at 1.25x input price, which was ~73% of the
+      // daily spend. A 1h write costs 2x but is amortised over the hour.
+      cache_control: { type: 'ephemeral', ttl: '1h' },
     },
     {
       type: 'text',
@@ -197,6 +201,37 @@ function emit(event, data) {
 }
 
 /**
+ * Put a cache breakpoint on the final block of the final message.
+ *
+ * Caching is prefix-based, so this lets each tool-use iteration read the
+ * conversation and accumulated tool output from cache instead of re-processing
+ * it at full price. Only the newest marker is useful and a request allows four
+ * in total, so any earlier one is cleared first.
+ */
+function markMessageCacheBreakpoint(messages) {
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block && typeof block === 'object') delete block.cache_control;
+    }
+  }
+
+  const last = messages[messages.length - 1];
+  if (!last) return messages;
+  // History turns hold plain strings; a breakpoint needs block form. The last
+  // message is always one built in this call, never a persisted history entry,
+  // so this never reshapes what gets written back to disk.
+  if (typeof last.content === 'string') {
+    last.content = [{ type: 'text', text: last.content }];
+  }
+  if (!Array.isArray(last.content) || !last.content.length) return messages;
+
+  const tail = last.content[last.content.length - 1];
+  if (tail && typeof tail === 'object') tail.cache_control = { type: 'ephemeral' };
+  return messages;
+}
+
+/**
  * Send user text through Claude with tool-use loop.
  * Returns the final spoken reply string.
  */
@@ -205,7 +240,12 @@ async function think(userText) {
 
   const tools = buildToolDefs();
   // Cache the (stable) tool definitions so the model doesn't re-process them every turn.
-  tools[tools.length - 1].cache_control = { type: 'ephemeral' };
+  tools[tools.length - 1].cache_control = { type: 'ephemeral', ttl: '1h' };
+
+  // Build the system prompt once per utterance, not once per loop iteration:
+  // it embeds the time to the minute, so a minute ticking over mid-loop used to
+  // change the prefix and invalidate every cached block after it.
+  const system = buildSystemPrompt();
 
   // Build the working message list from persisted history + this turn's input.
   // `history` holds only clean text turns; tool_use/tool_result blocks stay local
@@ -219,9 +259,9 @@ async function think(userText) {
         max_tokens: 400,
         // Low effort + no extended thinking keeps Opus snappy for short spoken replies.
         output_config: { effort: 'low' },
-        system: buildSystemPrompt(),
+        system,
         tools,
-        messages,
+        messages: markMessageCacheBreakpoint(messages),
       });
 
       messages.push({ role: 'assistant', content: resp.content });
